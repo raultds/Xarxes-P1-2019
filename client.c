@@ -110,6 +110,7 @@ int main(int argc, char **argv){
 
     subscribe(&config, addr_cli, addr_server);
 
+    return 1;
 }
 
 void read_software_config_file(struct client_config *config){
@@ -122,8 +123,6 @@ void read_software_config_file(struct client_config *config){
     exit(-1);
   }
 
-
-
   fscanf(conf, "%s", word);
   fscanf(conf, "%s", word);                    /* No es la millor manera de fer-ho... pero ja que suposem que el fitxer es correcte*/
   strcpy(config->name, word);                  /*  Ens saltem les comprovacions */
@@ -131,7 +130,6 @@ void read_software_config_file(struct client_config *config){
   fscanf(conf, "%s", word);
   fscanf(conf, "%s", word);
   strcpy(config->MAC, word);
-
 
   fscanf(conf, "%s", word);
   fscanf(conf, "%s", word);
@@ -145,11 +143,10 @@ void read_software_config_file(struct client_config *config){
   fscanf(conf, "%s", word);
   config->UDPport = atoi(word);
   fclose(conf);
-
 }
 
 void subscribe(struct client_config *config, struct sockaddr_in addr_server, struct sockaddr_in addr_cli){
-  int tries, max = 4, i, temp2 = -2 ; /*Poso temp2 a -2 per a evitar un warning de que potser no esta inicialitzada */
+  int tries, max = 4, i, temp2 = 0;
   int correct = 0; /*variable per saber si s'ha aconseguit correctament el registre */
   char buff[100];
   struct udp_PDU reg_pdu;
