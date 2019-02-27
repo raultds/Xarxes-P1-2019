@@ -34,7 +34,6 @@ struct client_config{
   char server[20];
   int UDPport;
 };
-/*Estructura per a guardar les dades del arxiu del client */
 
 /*Estructura que fa de paquet UDP */
 struct udp_PDU{
@@ -44,14 +43,14 @@ struct udp_PDU{
   char random[8];
   char data [51];
 };
-/*Estructura que fa de paquet UDP */
+
 
 /* Variables globals */
 int debug_flag = 0;
 char software_config_file[20] = "client.cfg";
 char network_config_file[20] = "boot.cfg";
 char state[20] = "DISCONNECTED";
-/* Variables globals */
+int sock;
 
 /* Funcions */
 void read_software_config_file(struct client_config *config);
@@ -61,15 +60,15 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
 void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char petition);
 void set_state(char _state[]);
 void print_msg(char msg[]);
-/* Funcions */
 
 int main(int argc, char **argv){
-  int sock, port, laddr_cli;
+  int i;
   struct sockaddr_in addr_server, addr_cli;
-  struct hostent *ent;
+
+  struct client_config config;
 
   if(argc>1){
-    for(int i = 0; i < argc; i++){               /* PARSING PARAMETERS */
+    for(i = 0; i < argc; i++){               /* PARSING PARAMETERS */
       char const* option = argv[i];
       if(option[0] == '-'){
         switch(option[1]){
@@ -90,44 +89,40 @@ int main(int argc, char **argv){
       }
     }
     debug("S'ha seleccionat l'opció debug");
-    struct client_config config;
-    //config = (struct client_config*) malloc(sizeof(struct client_config));
 
     read_software_config_file(&config);
-
     debug("S'ha llegit l'arxiu de configuració");
+
     printf("L'arxiu llegit te els següents valors: \n \t Name: %s \n \t MAC: %s \n \t Server: %s \n \t Port: %i \n" ,
       config.name, config.MAC, config.server, config.UDPport);
 
     /* Adreça del bind del client */
     memset(&addr_cli, 0, sizeof (struct sockaddr_in));
     addr_cli.sin_family = AF_INET;
-    addr_cli.sin_addr.s_addr = htonl(INADDR_ANY); // no se perque
+    addr_cli.sin_addr.s_addr = htonl(INADDR_ANY);
     addr_cli.sin_port = htons(config.UDPport);
 
     /* Adreça del servidor */
     memset(&addr_server, 0, sizeof(addr_server));
     addr_server.sin_family = AF_INET;
-    ent = gethostbyname(config.server);
     addr_server.sin_addr.s_addr = inet_addr(config.server);
     addr_server.sin_port = htons(config.UDPport);
 
     subscribe(&config, addr_cli, addr_server);
 
-
 }
 
 void read_software_config_file(struct client_config *config){
-
   FILE *conf;
+  char word[1024];
+
   conf = fopen(software_config_file, "r");
   if(conf == NULL){
     fprintf(stderr, "Error obrir arxiu");
     exit(-1);
   }
 
-  char word[1024];
-  int i=0;
+
 
   fscanf(conf, "%s", word);
   fscanf(conf, "%s", word);                    /* No es la millor manera de fer-ho... pero ja que suposem que el fitxer es correcte*/
@@ -154,25 +149,34 @@ void read_software_config_file(struct client_config *config){
 }
 
 void subscribe(struct client_config *config, struct sockaddr_in addr_server, struct sockaddr_in addr_cli){
-  int sock;
+  int tries, max = 4, i, temp2 = -2 ; /*Poso temp2 a -2 per a evitar un warning de que potser no esta inicialitzada */
+  int correct = 0; /*variable per saber si s'ha aconseguit correctament el registre */
+  char buff[100];
+  struct udp_PDU reg_pdu;
+
   sock = socket(AF_INET, SOCK_DGRAM, 0);
   if(sock < 0){
     fprintf(stderr, "No puc obrir socket \n");
     exit(-1);
   }
+
   debug("S'ha obert el socket");
 
+  if (bind(sock, (struct sockaddr *)&addr_server, sizeof(addr_server)) < 0){
+    perror("bind failed \n");
+    exit(-1);
+  }
+  debug("S'ha fet el bind al port");
   /* Creació paquet registre */
-  struct udp_PDU reg_pdu;
+
   createUDP(&reg_pdu, config, REGISTER_REQ);
 
-  int correct = 0; //variable per saber si s'ha aconseguit correctament el registre
-  int tries;
+
 
   /* Inici proces subscripció */
   for(tries = 0; tries < 3; tries++){
     int packet_counter = 0, interval = 2, t = 2, temp = 0;
-    for(int i = 0; i < 3; i++){
+    for(i = 0; i < 3; i++){
       temp = sendto(sock, (struct udp_PDU*)&reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
       if(temp == -1){
         printf("Error sendTo \n");
@@ -186,12 +190,9 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
       }
       sleep(t);
     }
-    int max = 4;
-    int temp2;
-    char buff[100];
-    while(1){ // ARREGLAR EL RECVFROM
-      //FICAR AIXO EN UN PTHREAD
-      //temp2 = recvfrom(sock, &buff, sizeof(buff), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
+
+    while(1){
+      /*temp2 = recvfrom(sock, &buff, sizeof(buff), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));*/
       if(temp2 == 0){
           temp = sendto(sock, (struct udp_PDU*)&reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
           if(temp == -1){
@@ -206,7 +207,7 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
 
       }else if(temp2 == -1){
         printf("Error recvfrom \n");
-      }else{ // s'han rebut dades
+      }else{ /* s'han rebut dades */
         correct = 1;
         break;
       }
@@ -223,7 +224,7 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
     exit(-1);
   }
 
-  //CONTINUA EL PROGRAMA
+  /*CONTINUA EL PROGRAMA*/
 
 }
 
