@@ -146,7 +146,7 @@ void read_software_config_file(struct client_config *config){
 }
 
 void subscribe(struct client_config *config, struct sockaddr_in addr_server, struct sockaddr_in addr_cli){
-  int tries, max = 4, i, temp2 = 0;
+  int tries, max = 4, i, temp2;
   int correct = 0; /*variable per saber si s'ha aconseguit correctament el registre */
   char buff[100];
   struct udp_PDU reg_pdu;
@@ -159,10 +159,10 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
 
   debug("S'ha obert el socket");
 
-  if (bind(sock, (struct sockaddr *)&addr_server, sizeof(addr_server)) < 0){
+/*  if (bind(sock, (struct sockaddr *)&addr_server, sizeof(addr_server)) < 0){
     perror("bind failed \n");
     exit(-1);
-  }
+  }*/
   debug("S'ha fet el bind al port");
   /* Creació paquet registre */
 
@@ -185,12 +185,12 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
         set_state("WAIT_REG");
         debug("Passat a l'estat WAIT_REG");
       }
-      sleep(t);
     }
 
     while(1){
-      /*temp2 = recvfrom(sock, &buff, sizeof(buff), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));*/
-      if(temp2 == 0){
+      sleep(t);
+      temp2 = recvfrom(sock, &buff, sizeof(buff), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
+      if(temp2 < 0){ /* Timeout excedit */
           temp = sendto(sock, (struct udp_PDU*)&reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
           if(temp == -1){
             printf("Error sendTo \n");
@@ -200,22 +200,19 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
           debug("Enviat paquet REGISTER_REQ");
           if(packet_counter == 8) break;
           if((interval * max) > t ) t+=interval;
-          sleep(t);
 
-      }else if(temp2 == -1){
-        printf("Error recvfrom \n");
       }else{ /* s'han rebut dades */
         correct = 1;
         break;
       }
-
     }
     if(correct == 1) break;
     if(packet_counter == 8){
       sleep(5);
       debug("Reiniciant procès subscripció");
     }
-  }
+  } /* Fi while de enviar paquets */
+
   if(tries==3 && correct == 0){
     print_msg("Ha fallat el procès de registre. No s'ha pogut contactar amb el servidor.");
     exit(-1);
