@@ -35,6 +35,14 @@ struct client_config{
   int UDPport;
 };
 
+/* Estructura per a pasar les structs de config a treatPacket() */
+struct parameters{
+  struct client_config config;
+  struct sockaddr_in addr_cli;
+  struct sockaddr_in addr_server;
+  struct udp_PDU *data;
+};
+
 /*Estructura que fa de paquet UDP */
 struct udp_PDU{
   unsigned char type;
@@ -43,6 +51,7 @@ struct udp_PDU{
   char random[8];
   char data [51];
 };
+
 /* Estructura que conté la info que es rep del subscribe per a la conexió TCP */
 struct tcp_data{
   char random[8];
@@ -56,6 +65,7 @@ char network_config_file[20] = "boot.cfg";
 char state[20] = "DISCONNECTED";
 int sock;
 struct tcp_data pc_data;
+struct parameters params;
 
 /* Funcions */
 void parse_parameters(int argc, char **argv);
@@ -67,6 +77,7 @@ void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char 
 void set_state(char _state[]);
 void print_msg(char msg[]);
 void periodic_comunication(struct client_config *config, struct sockaddr_in addr_server, struct sockaddr_in addr_cli);
+void treatPacket(struct parameters params);
 
 int main(int argc, char **argv){
   struct sockaddr_in addr_server, addr_cli;
@@ -90,6 +101,11 @@ int main(int argc, char **argv){
   addr_server.sin_family = AF_INET;
   addr_server.sin_addr.s_addr = inet_addr(config.server);
   addr_server.sin_port = htons(config.UDPport);
+
+  /* Per a poder tractar els paquets més facilment més endavant */
+  params.config = config;
+  params.addr_cli = addr_cli;
+  params.addr_server = addr_server;
 
   subscribe(&config, addr_cli, addr_server);
   periodic_comunication(&config, addr_cli, addr_server);
@@ -171,20 +187,20 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
     }
 
     while(1){
-      sleep(t);
+
       fromlen = sizeof(addr_server);
       temp2 = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
-      if(temp2 < 0){ /* Timeout excedit */
+      if(temp2 < 0){ /* No s'ha rebut dades */
           temp = sendto(sock, (struct udp_PDU*)&reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
           if(temp == -1){
             printf("Error sendTo \n");
             exit(-1);
           }
           packet_counter++;
-          debug("Enviat paquet REGISTER_REQ");
+          debug("Enviat paquet REGISTER_REQ");        
           if(packet_counter == 8) break;
           if((interval * max) > t ) t+=interval;
-
+          sleep(t);
       }else{ /* s'han rebut dades */
         correct = 1;
         break;
@@ -195,43 +211,27 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
       sleep(5);
       debug("Reiniciant procès subscripció");
     }
-  } /* Fi while de enviar paquets */
+  } /* Fi while d'enviar paquets */
 
-  if(tries==3 && correct == 0){
+  if(tries==3 && correct == 0){ /* Comprova si s'ha sortit del bucle per màxim d'intents */
     print_msg("Ha fallat el procès de registre. No s'ha pogut contactar amb el servidor.");
     exit(-1);
   }
 
   sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
   debug(buff);
-  /*CONTINUA EL PROGRAMA*/
-  switch(data.type){
-    case REGISTER_REJ:
-      sprintf(buff, "El client ha estat rebutjat. Motiu: %s", data.data);
-      print_msg(buff);
-      set_state("DISCONNECTED");
-      debug("Client passa a l'estat : DISCONNECTED.");
-      exit(-1);
-      break;
-    case REGISTER_NACK:
-      debug("Rebut REGISTER_NACK, reiniciant procès subscripció");
-      subscribe(config, addr_server, addr_cli);
-      break;
-    case REGISTER_ACK:
-      debug("Rebut REGISTER_ACK, client passa a l'estat REGISTERED");
-      set_state("REGISTERED");
-      pc_data.tcp_port = atoi(data.data);
-      strcpy(pc_data.random, data.random);
-    }
+
+  params.data = &data;
+  treatPacket(params);
 }
 
 void periodic_comunication(struct client_config *config, struct sockaddr_in addr_server, struct sockaddr_in addr_cli){
-  struct udp_PDU data;
+/*  struct udp_PDU data;
   struct udp_PDU periodic_pdu;
   socklen_t fromlen;
-  char buff[100];
-  createUDP(&periodic_pdu, config, ALIVE_INF);
 
+  createUDP(&periodic_pdu, config, ALIVE_INF);
+*/
 
 
 }
@@ -241,6 +241,27 @@ void set_state(char _state[]){
   strcpy(state, _state);
 }
 
+void treatPacket(struct parameters params){
+  char buff[100];
+  switch(params.data->type){
+    case REGISTER_REJ:
+      sprintf(buff, "El client ha estat rebutjat. Motiu: %s", params.data->data);
+      print_msg(buff);
+      set_state("DISCONNECTED");
+      debug("Client passa a l'estat : DISCONNECTED.");
+      exit(-1);
+      break;
+    case REGISTER_NACK:
+      debug("Rebut REGISTER_NACK, reiniciant procès subscripció");
+      subscribe(&params.config, params.addr_server, params.addr_cli);
+      break;
+    case REGISTER_ACK:
+      debug("Rebut REGISTER_ACK, client passa a l'estat REGISTERED");
+      set_state("REGISTERED");
+      pc_data.tcp_port = atoi(params.data->data);
+      strcpy(pc_data.random, params.data->random);
+    }
+}
 
 void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char petition){
   switch(petition){
