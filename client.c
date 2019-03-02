@@ -173,7 +173,7 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
     while(1){
       sleep(t);
       fromlen = sizeof(addr_server);
-      temp2 = recvfrom(sock, &data, sizeof(data), 0, (struct sockaddr *)&addr_server, &fromlen); /* arreglar el temps */
+      temp2 = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
       if(temp2 < 0){ /* Timeout excedit */
           temp = sendto(sock, (struct udp_PDU*)&reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
           if(temp == -1){
