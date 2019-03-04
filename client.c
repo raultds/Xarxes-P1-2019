@@ -29,8 +29,8 @@
 
 /*Estructura per a guardar les dades del arxiu del client */
 struct client_config{
-  char name[8];
-  char MAC[14];
+  char name[7];
+  char MAC[13];
   char server[20];
   int UDPport;
 };
@@ -46,10 +46,10 @@ struct parameters{
 /*Estructura que fa de paquet UDP */
 struct udp_PDU{
   unsigned char type;
-  char name[8];
-  char mac[14];
-  char random[8];
-  char data [51];
+  char name[7];
+  char mac[13];
+  char random[7];
+  char data [50];
 };
 
 /* Estructura que conté la info que es rep del subscribe per a la conexió TCP */
@@ -62,7 +62,7 @@ struct tcp_data{
 int debug_flag = 0;
 char software_config_file[20] = "client.cfg";
 char network_config_file[20] = "boot.cfg";
-char state[20] = "DISCONNECTED";
+char state[30] = "DISCONNECTED";
 int sock;
 struct tcp_data pc_data;
 struct parameters params;
@@ -114,7 +114,7 @@ int main(int argc, char **argv){
 
 void read_software_config_file(struct client_config *config){
   FILE *conf;
-  char word[1024];
+  char word[256];
 
   conf = fopen(software_config_file, "r");
   if(conf == NULL){
@@ -218,7 +218,6 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
 
   sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
   debug(buff);
-
   params.data = &data;
   treatPacket(params);
 }
@@ -300,15 +299,15 @@ void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char 
       pdu->type = petition;
       strcpy(pdu->name, config->name);
       strcpy(pdu->mac, config->MAC);
-      strcpy(pdu->random, "0000000");
-      pdu->data[0] = '\0';
+      memset(pdu->random, '0', sizeof(char)*6);
+      memset(pdu->data, '\0', sizeof(char)*50);
       break;
     case ALIVE_INF:
       pdu->type = petition;
       strcpy(pdu->name, config->name);
       strcpy(pdu->mac, config->MAC);
-      strcpy(pdu->random, "0000000");
-      pdu->data[0] = '\0';
+      memset(pdu->random, '0', sizeof(char)*6); /* he de mirar el numero que no se que */
+      memset(pdu->data, '\0', sizeof(char)*50);
       break;
   }
 
