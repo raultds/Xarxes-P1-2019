@@ -27,11 +27,13 @@
 #define GET_DATA 0x34
 #define GET_END 0x35
 
+
 /*Estructura per a guardar les dades del arxiu del client */
 struct client_config{
   char name[7];
   char MAC[13];
   char server[20];
+  char random[7];
   int UDPport;
 };
 
@@ -63,7 +65,7 @@ int debug_flag = 0;
 char software_config_file[20] = "client.cfg";
 char network_config_file[20] = "boot.cfg";
 char state[30] = "DISCONNECTED";
-int sock;
+int sock, counter;
 struct tcp_data pc_data;
 struct parameters params;
 
@@ -78,6 +80,7 @@ void set_state(char _state[]);
 void print_msg(char msg[]);
 void periodic_comunication(struct client_config *config, struct sockaddr_in addr_server, struct sockaddr_in addr_cli);
 void treatPacket(struct parameters params);
+void open_socket();
 
 int main(int argc, char **argv){
   struct sockaddr_in addr_server, addr_cli;
@@ -107,6 +110,7 @@ int main(int argc, char **argv){
   params.addr_cli = addr_cli;
   params.addr_server = addr_server;
 
+  open_socket();
   subscribe(&config, addr_cli, addr_server);
   periodic_comunication(&config, addr_cli, addr_server);
   return 1;
@@ -152,13 +156,6 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
   socklen_t fromlen;
   char buff[100];
 
-  sock = socket(AF_INET, SOCK_DGRAM, 0);
-  if(sock < 0){
-    fprintf(stderr, "No puc obrir socket \n");
-    exit(-1);
-  }
-
-  debug("S'ha obert el socket");
 
   /* Creació paquet registre */
   createUDP(&reg_pdu, config, REGISTER_REQ);
@@ -242,6 +239,9 @@ void periodic_comunication(struct client_config *config, struct sockaddr_in addr
       sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
       debug(buff);
       treatPacket(params);
+      if(strcmp(state, "REGISTERED")==0){
+        break;
+      }
     }
     sleep(r);
   }
@@ -270,17 +270,29 @@ void treatPacket(struct parameters params){
       exit(-1);
       break;
     case REGISTER_NACK:
-      debug("Rebut REGISTER_NACK, reiniciant procès subscripció");
-      subscribe(&params.config, params.addr_server, params.addr_cli);
-      break;
+      counter++;
+      if(counter < 3){
+        debug("Rebut REGISTER_NACK, reiniciant procès subscripció");
+        subscribe(&params.config, params.addr_server, params.addr_cli);
+        break;
+      }
+      debug("Superat màxim d'intents. Tancant client.");
+      exit(-1);
     case REGISTER_ACK:
       debug("Rebut REGISTER_ACK, client passa a l'estat REGISTERED");
       set_state("REGISTERED");
       pc_data.tcp_port = atoi(params.data->data);
-      strcpy(pc_data.random, params.data->random);
+      strcpy(params.data->random, pc_data.random);
+      printf("\n \n %s \n \n", pc_data.random);
+      strcpy(params.config.random, params.data->random);
       break;
     case ALIVE_ACK:
-      /*no entenc*/
+      if(strcmp(state, "ALIVE")!=0){
+          if(strcmp(params.data->random, params.config.random) == 0){
+            set_state("ALIVE");
+            debug("Rebut REGISTER_ACK correcte, client passa a l'estat ALIVE");
+        }
+      }
     case ALIVE_NACK: /*No els tenim en compte, no caldria ficar-los */
       break;
     case ALIVE_REJ:
@@ -300,14 +312,17 @@ void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char 
       strcpy(pdu->name, config->name);
       strcpy(pdu->mac, config->MAC);
       memset(pdu->random, '0', sizeof(char)*6);
-      memset(pdu->data, '\0', sizeof(char)*50);
+      pdu->random[7]='\0';
+      memset(pdu->data, '\0', sizeof(char)*49);
+      pdu->data[49]='\0';
       break;
     case ALIVE_INF:
       pdu->type = petition;
       strcpy(pdu->name, config->name);
       strcpy(pdu->mac, config->MAC);
-      memset(pdu->random, '0', sizeof(char)*6); /* he de mirar el numero que no se que */
-      memset(pdu->data, '\0', sizeof(char)*50);
+      strcpy(pdu->random, config->random);
+      printf("\n \n %s %s hpña \n \n", pdu->random, config->random);
+      memset(pdu->data, '\0', sizeof(char)*49);
       break;
   }
 
@@ -355,4 +370,15 @@ void parse_parameters(int argc, char **argv){
       }
     }
     debug("S'ha seleccionat l'opció debug");
+}
+
+void open_socket(){
+  sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if(sock < 0){
+    fprintf(stderr, "No puc obrir socket \n");
+    exit(-1);
+  }
+
+  debug("S'ha obert el socket");
+
 }
