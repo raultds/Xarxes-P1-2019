@@ -68,7 +68,7 @@ int debug_flag = 0;
 char software_config_file[20] = "client.cfg";
 char network_config_file[20] = "boot.cfg";
 char state[30] = "DISCONNECTED";
-int sock, counter;
+int udp_sock, tcp_sock, counter;
 int pthread_created = 0;
 struct tcp_data pc_data;
 struct parameters params;
@@ -87,7 +87,8 @@ void set_periodic_comunication();
 void treatPacket(struct parameters params);
 void open_socket();
 void send_alive();
-
+void read_commands();
+void treat_command(char command[]);
 
 int main(int argc, char **argv){
   struct sockaddr_in addr_server, addr_cli;
@@ -122,8 +123,8 @@ int main(int argc, char **argv){
 
   open_socket();
   subscribe(&config, addr_cli, addr_server);
+  read_commands();
   pthread_join(alive_thread, NULL);
-
   return 1;
 }
 
@@ -175,7 +176,7 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
   for(tries = 0; tries < 3 && strcmp("REGISTERED", state) !=0 && strcmp("ALIVE", state); tries++){
     int packet_counter = 0, interval = 2, t = 2, temp = 0;
     for(i = 0; i < 3; i++){
-      temp = sendto(sock, &reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
+      temp = sendto(udp_sock, &reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
       if(temp == -1){
         printf("Error sendTo \n");
       }
@@ -186,7 +187,7 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
         if(debug_flag == 0)  print_msg("ESTAT: WAIT_REG");
         debug("Passat a l'estat WAIT_REG");
       }
-      n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
+      n_bytes = recvfrom(udp_sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
       if(n_bytes > 0) break;
       sleep(t);
     }
@@ -195,9 +196,9 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
         correct = 1;
         break;
       }
-      n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
+      n_bytes = recvfrom(udp_sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
       if(n_bytes < 0){ /* No s'ha rebut dades */
-          temp = sendto(sock, &reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
+          temp = sendto(udp_sock, &reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
           if(temp == -1){
             printf("Error sendTo \n");
             exit(-1);
@@ -241,13 +242,13 @@ void send_alive(){
   createUDP(&alive_pdu, params.config, ALIVE_INF);
   while(1){
     while(strcmp(state, "ALIVE")==0){
-      temp = sendto(sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
+      temp = sendto(udp_sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
       debug("Enviat paquet ALIVE_INF");
       if(temp == -1){
         printf("Error sendTo \n");
       }
 
-      n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&params.addr_server, &fromlen);
+      n_bytes = recvfrom(udp_sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&params.addr_server, &fromlen);
       if(n_bytes > 0){
         i=0;
         params.data = &data;
@@ -279,13 +280,13 @@ void set_periodic_comunication(){
   fromlen = sizeof(&params.addr_server);
 
   while(1){
-    temp = sendto(sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
+    temp = sendto(udp_sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
     debug("Enviat paquet ALIVE_INF");
     if(temp == -1){
       printf("Error sendTo \n");
     }
     sleep(r);
-    n_bytes = recvfrom(sock, &data, sizeof(data), 0, (struct sockaddr *)&params.addr_server, &fromlen);
+    n_bytes = recvfrom(udp_sock, &data, sizeof(data), 0, (struct sockaddr *)&params.addr_server, &fromlen);
     if(n_bytes > 0){
       params.data = &data;
       sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
@@ -401,6 +402,23 @@ void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char 
   }
 
 }
+void read_commands(){
+  char command[10]; /* les comandes son màxim 9 caracters */
+  while(1){
+    printf("-> ");
+    scanf("%9s", command);
+    treat_command(command);
+  }
+}
+
+void treat_command(char command[]){
+  if(strcmp(command, "quit") == 0){
+    pthread_cancel(alive_thread);
+    close(udp_sock);
+    debug("Finalitzat socket");
+    exit(1);
+  }
+}
 
 void debug(char msg[]){
   if(debug_flag==1){
@@ -447,8 +465,8 @@ void parse_parameters(int argc, char **argv){
 }
 
 void open_socket(){
-  sock = socket(AF_INET, SOCK_DGRAM, 0);
-  if(sock < 0){
+  udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if(udp_sock < 0){
     fprintf(stderr, "No puc obrir socket \n");
     exit(-1);
   }
