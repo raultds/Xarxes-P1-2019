@@ -69,6 +69,7 @@ char software_config_file[20] = "client.cfg";
 char network_config_file[20] = "boot.cfg";
 char state[30] = "DISCONNECTED";
 int sock, counter;
+int pthread_created = 0;
 struct tcp_data pc_data;
 struct parameters params;
 pthread_t alive_thread;
@@ -86,6 +87,7 @@ void set_periodic_comunication();
 void treatPacket(struct parameters params);
 void open_socket();
 void send_alive();
+
 
 int main(int argc, char **argv){
   struct sockaddr_in addr_server, addr_cli;
@@ -121,6 +123,7 @@ int main(int argc, char **argv){
   open_socket();
   subscribe(&config, addr_cli, addr_server);
   pthread_join(alive_thread, NULL);
+
   return 1;
 }
 
@@ -163,13 +166,13 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
   struct udp_PDU reg_pdu;
   socklen_t fromlen;
   char buff[100];
-
+  fromlen = sizeof(addr_server);
 
   /* Creació paquet registre */
   createUDP(&reg_pdu, config, REGISTER_REQ);
 
   /* Inici proces subscripció */
-  for(tries = 0; tries < 3 && strcmp("REGISTERED", state) !=0; tries++){
+  for(tries = 0; tries < 3 && strcmp("REGISTERED", state) !=0 && strcmp("ALIVE", state); tries++){
     int packet_counter = 0, interval = 2, t = 2, temp = 0;
     for(i = 0; i < 3; i++){
       temp = sendto(sock, &reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
@@ -180,18 +183,18 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
       debug("Enviat paquet REGISTER_REQ");
       if(strcmp(state, "DISCONNECTED") == 0){
         set_state("WAIT_REG");
+        if(debug_flag == 0)  print_msg("ESTAT: WAIT_REG");
         debug("Passat a l'estat WAIT_REG");
       }
       n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
       if(n_bytes > 0) break;
       sleep(t);
     }
-    while(1 && strcmp("REGISTERED", state) !=0){
+    while(1 && strcmp("REGISTERED", state) !=0 && strcmp("ALIVE", state)){
       if(n_bytes > 0) {
         correct = 1;
         break;
       }
-      fromlen = sizeof(addr_server);
       n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&addr_server, &fromlen);
       if(n_bytes < 0){ /* No s'ha rebut dades */
           temp = sendto(sock, &reg_pdu, sizeof(reg_pdu), 0, (struct sockaddr *)&addr_server, sizeof(addr_server));
@@ -228,13 +231,14 @@ void subscribe(struct client_config *config, struct sockaddr_in addr_server, str
 }
 
 void send_alive(){
-  int u = 3, i = 0, temp, n_bytes;
+  int u = 3, i = 0, r = 3, temp, n_bytes;
   char buff[100];
   socklen_t fromlen;
   struct udp_PDU alive_pdu;
   struct udp_PDU data;
-  createUDP(&alive_pdu, params.config, ALIVE_INF);
+  fromlen = sizeof(&params.addr_server);
 
+  createUDP(&alive_pdu, params.config, ALIVE_INF);
   while(1){
     while(strcmp(state, "ALIVE")==0){
       temp = sendto(sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
@@ -242,6 +246,7 @@ void send_alive(){
       if(temp == -1){
         printf("Error sendTo \n");
       }
+
       n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&params.addr_server, &fromlen);
       if(n_bytes > 0){
         i=0;
@@ -253,11 +258,13 @@ void send_alive(){
         i++;
         if(i==u){  /*Comprova que no s'ha rebut 3 paquets seguits de confirmació d'ALive*/
           set_state("DISCONNECTED");
+          print_msg("ESTAT: DISCONNECTED");
           debug("No s'ha rebut confirmació de tres paquets de rebuda de paquets ALIVE consecutius.");
           debug("Client passa a l'estat DISCONNECTED i reinicia el proces de subscripció");
           subscribe(params.config, params.addr_server, params.addr_cli);
         }
       }
+      sleep(r);
     }
   }
 }
@@ -269,6 +276,7 @@ void set_periodic_comunication(){
   struct udp_PDU alive_pdu;
   struct udp_PDU data;
   createUDP(&alive_pdu, params.config, ALIVE_INF);
+  fromlen = sizeof(&params.addr_server);
 
   while(1){
     temp = sendto(sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
@@ -276,7 +284,8 @@ void set_periodic_comunication(){
     if(temp == -1){
       printf("Error sendTo \n");
     }
-    n_bytes = recvfrom(sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&params.addr_server, &fromlen);
+    sleep(r);
+    n_bytes = recvfrom(sock, &data, sizeof(data), 0, (struct sockaddr *)&params.addr_server, &fromlen);
     if(n_bytes > 0){
       params.data = &data;
       sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
@@ -286,15 +295,18 @@ void set_periodic_comunication(){
         break;
       }
     }
-    sleep(r);
+    printf("\n \n ARA COMPROVO ESTAT \n \n");
   }
   if(strcmp(state, "REGISTERED") == 0){
     set_state("DISCONNECTED");
+    if(debug_flag == 0)  print_msg("ESTAT: DISCONNECTED");
     debug("NO s'ha rebut resposta");
     debug("Passat a l'estat DISCONNECTED i reinici del procès de subscripció");
     subscribe(params.config, params.addr_server, params.addr_cli);
-  }else if(strcmp(state, "ALIVE") == 0){
-    pthread_create(&alive_thread, NULL, (void*(*) (void*))send_alive, NULL);send_alive();
+  }else if(strcmp(state, "ALIVE") == 0 && pthread_created==0){
+    pthread_created = 1;
+    debug("Creat procés per mantenir comunicació periodica amb el servidor");
+    pthread_create(&alive_thread, NULL, (void*(*) (void*))send_alive, NULL);
   }
 
 }
@@ -306,45 +318,64 @@ void set_state(char _state[]){
 
 void treatPacket(struct parameters params){
   char buff[100];
+  int equals;
   switch(params.data->type){
     case REGISTER_REJ:
       sprintf(buff, "El client ha estat rebutjat. Motiu: %s", params.data->data);
       print_msg(buff);
       set_state("DISCONNECTED");
+      if(debug_flag == 0)  print_msg("ESTAT: DISCONNECTED");
       debug("Client passa a l'estat : DISCONNECTED.");
       exit(-1);
       break;
     case REGISTER_NACK:
-      counter++;
-      /*if(counter < 3){*/
+      if(strcmp("ALIVE", state) == 0){ /* El desestimem perque ja estem registrats */
+        break;
+      }
+      if(counter < 3){
         debug("Rebut REGISTER_NACK, reiniciant procès subscripció");
         subscribe(params.config, params.addr_server, params.addr_cli);
+        counter++;
         break;
-      /*}*/
+      }
       debug("Superat màxim d'intents. Tancant client.");
       exit(-1);
     case REGISTER_ACK:
-      debug("Rebut REGISTER_ACK, client passa a l'estat REGISTERED");
-      set_state("REGISTERED");
-      params.config->TCPport = atoi(params.data->data);
-      strcpy(params.config->random, params.data->random);
-      set_periodic_comunication();
+      equals = strcmp(state, "REGISTERED");
+      if(equals != 0){
+        debug("Rebut REGISTER_ACK, client passa a l'estat REGISTERED");
+        set_state("REGISTERED");
+        if(debug_flag == 0)  print_msg("ESTAT: REGISTERED");
+        params.config->TCPport = atoi(params.data->data);
+        strcpy(params.config->random, params.data->random);
+        set_periodic_comunication();
+      }else{
+        debug("Rebut REGISTER_ACK");
+      }
       break;
     case ALIVE_ACK:
-      if(strcmp(state, "ALIVE")!=0){
+      equals = strcmp(state, "ALIVE");
+      if(equals!=0){    /* Primer ack rebut */
           if(strcmp(params.data->random, params.config->random) == 0){
             set_state("ALIVE");
-            debug("Rebut REGISTER_ACK correcte, client passa a l'estat ALIVE");
-
-        }
+            if(debug_flag == 0)  print_msg("ESTAT: ALIVE");
+            debug("Rebut ALIVE_ACK correcte, client passa a l'estat ALIVE");
+          }
+      }else if(equals == 0){ /* Ja tenim estat ALIVE*/
+        debug("Rebut ALIVE_ACK");
       }
+      break;
     case ALIVE_NACK: /*No els tenim en compte, no caldria ficar-los */
       break;
     case ALIVE_REJ:
-      set_state("DISCONNECTED");
-      debug("Rebut ALIVE_REJ, possible suplantació d'identitat. Client pasa a estat DISCONNECTED");
-      debug("Reiniciant proces subscripció");
-      subscribe(params.config, params.addr_server, params.addr_cli);
+      equals = strcmp(state, "ALIVE");
+      if(equals==0){
+        set_state("DISCONNECTED");
+        if(debug_flag == 0)  print_msg("ESTAT: DISCONNECTED");
+        debug("Rebut ALIVE_REJ, possible suplantació d'identitat. Client pasa a estat DISCONNECTED");
+        debug("Reiniciant proces subscripció");
+        subscribe(params.config, params.addr_server, params.addr_cli);
+      }
       break;
     }
 
@@ -421,7 +452,5 @@ void open_socket(){
     fprintf(stderr, "No puc obrir socket \n");
     exit(-1);
   }
-
   debug("S'ha obert el socket");
-
 }
