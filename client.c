@@ -312,7 +312,6 @@ void set_periodic_comunication(){
 
 }
 
-
 void set_state(char _state[]){
   strcpy(state, _state);
 }
@@ -405,7 +404,7 @@ void createUDP(struct udp_PDU *pdu, struct client_config *config, unsigned char 
 void read_commands(){
   char command[10]; /* les comandes son màxim 9 caracters */
   while(1){
-    printf("-> ");
+    if(debug_flag == 0) printf("-> "); /* Per evitar barrejes amb els misatges debug */
     scanf("%9s", command);
     treat_command(command);
   }
@@ -417,6 +416,12 @@ void treat_command(char command[]){
     close(udp_sock);
     debug("Finalitzat socket");
     exit(1);
+  }else if(strcmp(command, "send-conf") == 0){
+    print_msg("Not implemented yet");
+  }else if(strcmp(command, "get-conf") == 0){
+    print_msg("Not implemented yet");
+  }else{
+    print_msg("Wrong command");
   }
 }
 
