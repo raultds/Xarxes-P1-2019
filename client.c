@@ -252,7 +252,7 @@ void send_alive(){
       if(n_bytes > 0){
         i=0;
         params.data = &data;
-        sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
+        sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.name, data.mac, data.random, data.data);
         debug(buff);
         treatPacket(params);
       }else{
@@ -271,7 +271,7 @@ void send_alive(){
 }
 
 void set_periodic_comunication(){
-  int r = 3, temp, n_bytes;
+  int r = 3, u=0, temp, n_bytes;
   char buff[100];
   socklen_t fromlen;
   struct udp_PDU alive_pdu;
@@ -279,24 +279,26 @@ void set_periodic_comunication(){
   createUDP(&alive_pdu, params.config, ALIVE_INF);
   fromlen = sizeof(&params.addr_server);
 
-  while(1){
+  while(1 && u!=3){
     temp = sendto(udp_sock, &alive_pdu, sizeof(alive_pdu), 0, (struct sockaddr *)&params.addr_server, sizeof(params.addr_server));
     debug("Enviat paquet ALIVE_INF");
     if(temp == -1){
       printf("Error sendTo \n");
     }
     sleep(r);
-    n_bytes = recvfrom(udp_sock, &data, sizeof(data), 0, (struct sockaddr *)&params.addr_server, &fromlen);
+    n_bytes = recvfrom(udp_sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&params.addr_server, &fromlen);
     if(n_bytes > 0){
       params.data = &data;
-      sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
+      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.name, data.mac, data.random, data.data);
       debug(buff);
       treatPacket(params);
-      if(strcmp(state, "REGISTERED")==0 || strcmp(state, "ALIVE")==0){
+      if((strcmp(state, "REGISTERED")==0 || strcmp(state, "ALIVE")==0) && u==3){
         break;
       }
+    }else{
+      u++;
     }
-    printf("\n \n ARA COMPROVO ESTAT \n \n");
+
   }
   if(strcmp(state, "REGISTERED") == 0){
     set_state("DISCONNECTED");
