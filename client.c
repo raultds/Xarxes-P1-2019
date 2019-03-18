@@ -265,6 +265,7 @@ void send_alive(){
           subscribe(params.config, params.addr_server, params.addr_cli);
         }
       }
+      n_bytes = 0;
       sleep(r);
     }
   }
@@ -289,6 +290,7 @@ void set_periodic_comunication(){
     n_bytes = recvfrom(udp_sock, &data, sizeof(data), MSG_DONTWAIT, (struct sockaddr *)&params.addr_server, &fromlen);
     if(n_bytes > 0){
       params.data = &data;
+      u = 0;
       sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.name, data.mac, data.random, data.data);
       debug(buff);
       treatPacket(params);
@@ -355,7 +357,7 @@ void treatPacket(struct parameters params){
         debug("Rebut REGISTER_ACK");
       }
       break;
-    case ALIVE_ACK:
+    case ALIVE_ACK: /* FALTA GUARDARSE NAME, MAC, RANDOM DEL REGISTER_ACK I COMPROVAR QUE ES CORRECTE. CREAR UNA  STRUCT O ALGO */
       equals = strcmp(state, "ALIVE");
       if(equals!=0){    /* Primer ack rebut */
           if(strcmp(params.data->random, params.config->random) == 0){

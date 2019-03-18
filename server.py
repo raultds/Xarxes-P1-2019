@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2.7
 # coding: utf-8
 
 import sys, os, traceback, optparse, struct, random
@@ -55,12 +55,12 @@ def initialize_threads():
 def correct_alive(data, addr, equip):
     if equip == -1 or equip.status == 'DISCONNECTED':
         return -2
-    if equip.ip != addr[0]:
+    if equip.ip != addr[0] or str(equip.random) != str(data['random']):
         return -3
     return True
 
 #Envia paquet UDP
-def send_packet(data, addr, equip, type):
+def send_packet(addr, equip, type):
     if type == '0x01': #REGISTER_ACK
         if equip.status == 'REGISTERED' or equip.status == 'ALIVE':
             trama = struct.pack(packet_format, 0x01, configuration.name, configuration.mac, equip.random, str(configuration.TCPport))
@@ -118,48 +118,52 @@ def send_packet(data, addr, equip, type):
 def treat_reg_req(data, addr):
     equip = get_equip(data['name'])
     if equip != -1:
-        if equip.npackets ==0: #Si es el primer paquet que envia ens guardem la ip
+        if equip.npackets == 0: #Si es el primer paquet que envia ens guardem la ip
             equip.ip = addr[0]
         if equip.npackets == 0 and data['random']!= "000000": # Si envia numero aleatori !=0 quan es el seu primer paquet
-            send_packet(data, addr, equip, '0x02')
+            send_packet(addr, equip, '0x02')
         elif data['MAC'] == equip.mac:   # Si l'equip està permés se li envia un REG_ACK
-            send_packet(data, addr, equip, '0x01')
+            send_packet(addr, equip, '0x01')
         elif data['MAC'] != equip.mac:  # si la mac es incorrecta s'envia un REG_REJ
-            send_packet(data, addr, equip, '0x03')
+            send_packet(addr, equip, '0x03')
     else:
-        send_packet(data, addr, None, '0x03') #Si no esta autoritzat s'envia REG_REJ
+        send_packet(addr, None, '0x03') #Si no esta autoritzat s'envia REG_REJ
 
 #Manté la comunicació amb l'equip
 def keep_alive_ack(addr, equip):
     j=2
     interval=3
+    contador = 0
     start = time.time()
     while True:
-        if stop_threads == True:
+        if contador == 3:
+            debug("S'han perdut 3 paquets ALIVE o no s'han rebut correctament")
+            debug("Finalitzant client")
             break
-        if len(equip.packets)!=0:
+        if len(equip.packets) != 0:
+            if equip.status == 'REGISTERED':
+                equip.status = 'ALIVE'
+                debug('Equip: ' + equip.name + ' passat a estat ALIVE')
+            send_packet(addr, equip, '0x11')
+            contador = 0
+            start = time.time()
+            equip.packets.remove(equip.packets[0])
+        else: #No hi ha paquets en cua, comprovem que no s'han perdut
+            actual = time.time() - start
+            if actual > 3 and equip.status == "ALIVE": #temps en que hauria de rebre un packet
+                contador+=1
+        if equip.status == "REGISTERED":
             actual = time.time() - start
             if actual > j * interval:
-                debug("No s'ha rebut alive abans de 2 intervals d'enviament")
-                equip.status = "DISCONNECTED"
-                debug("Equip passa a estat DISCONNECTED")
-                break
-            else:
-                send_packet(equip.packets[0], addr, equip, '0x11')
-                start = time.time()
-                equip.packets.remove(equip.packets[0])
-        else:
-            actual = time.time() - start
-            if actual > j * interval:
-                debug("No s'ha rebut alive abans de 2 intervals d'enviament")
+                debug("No s'ha rebut alive correcte abans de 2 intervals d'enviament")
                 equip.status = "DISCONNECTED"
                 equip.status = "DISCONNECTED"
                 debug("Equip passa a estat DISCONNECTED")
                 break
 
-                
+
 #Tracta el primer alive_inf de cada equip
-def create_alive_thread( addr, equip):
+def create_alive_thread(addr, equip):
     thread_alive = threading.Thread(target=keep_alive_ack, kwargs={'addr': addr, 'equip': equip})
     thread_alive.daemon = True
     threads.append(thread_alive)
@@ -176,9 +180,9 @@ def treat_packet(data, addr):
         if alive == True:
             equip.packets.append(data)
         elif alive == -2:                         #S'envia alive_rej
-            send_packet(data, addr, equip, '0x13')
+            send_packet(addr, equip, '0x13')
         elif alive == -3:                         #S'envia alive_nack
-            send_packet(data, addr, equip, '0x12')
+            send_packet(addr, equip, '0x12')
     elif data['type']  == '0x09':                 # Error
         print_msg("Error rebuda paquet")
 
@@ -188,7 +192,7 @@ def listen_udp():
     try:
         socketUDP.bind(('localhost', configuration.UDPport))
     except socket.error as msg:
-        print 'Bind failed. Error code: ' + str(msg[0]) + ' Message ' + msg[1]
+        print('Bind failed. Error code: ' + str(msg[0]) + ' Message ' + msg[1])
     debug("Fet bind UDP al socket")
     debug("Escoltant paquets UDP")
     while True:
@@ -219,7 +223,7 @@ def listen_tcp():
     try:
         socketTCP.bind(('localhost', configuration.TCPport))
     except socket.error as msg:
-        print 'Bind failed. Error code: ' + str(msg[0]) + ' Message ' + msg[1]
+        print('Bind failed. Error code: ' + str(msg[0]) + ' Message ' + msg[1])
     debug("Fet bind TCP al socket")
     debug("Escoltant paquets TCP")
     while True:
@@ -241,11 +245,11 @@ def get_equip(name):
 #Imprimeix un missatge debug
 def debug(msg):
     if dbg == True:
-        print time.strftime("%H:%M:%S") + ": DEBUG -> " + str(msg)
+        print(time.strftime("%H:%M:%S") + ": DEBUG -> " + str(msg))
 
 #Imprimeix un missatge
 def print_message(msg):
-     print time.strftime("%H:%M:%S") + ": SYSTEM -> " + str(msg)
+     print(time.strftime("%H:%M:%S") + ": SYSTEM -> " + str(msg))
 
 def read_equips_file(equips_file):
     equips_data = list()
@@ -271,24 +275,29 @@ def read_config_file(config_file):
 
     return config(name, mac, UDPport, TCPport)
 
+#S'encarrega de tractar la comanda
 def treat_command(input):
     if input == 'quit':
         stop_threads = True
         sys.exit(1)
     elif input == 'list':
-        print '===================LLISTA EQUIPS=================='
+        print('===================LLISTA EQUIPS==================')
         for equip in equips_data:
             if equip.status != 'DISCONNECTED':
-                print 'Name: ' + equip.name + ' MAC: ' + equip.mac + ' IP: ' + equip.ip + ' State: ' + equip.status
+                print('Name: ' + equip.name + ' MAC: ' + equip.mac + ' IP: ' + equip.ip + ' State: ' + equip.status)
             else:
-                print 'Name: ' + equip.name + ' MAC: ' + equip.mac + ' State: ' + equip.status
+                print('Name: ' + equip.name + ' MAC: ' + equip.mac + ' State: ' + equip.status)
+    else:
+        print_msg("Comanda incorrecta")
+
+#S'encarrega de llegir comandes per consola
 def read_commands():
     while True:
         if dbg == False: #per evitar que es barreji amb els missatges de debug
-            input = raw_input('->')
+            command = input('->')
         else:
-            input = raw_input('')
-        treat_command(input)
+            command = input('')
+        treat_command(command)
 
 if __name__ == '__main__':
     try:
