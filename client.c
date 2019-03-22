@@ -285,6 +285,7 @@ void set_periodic_comunication(){
       u = 0;
       sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.name, data.mac, data.random, data.data);
       debug(buff);
+      memset(buff, '\0', sizeof(buff)); /*Per evitar stack smashing */
       treat_UDP_packet();
       if(strcmp(state, "ALIVE")==0 || u==3){
         break;
@@ -467,6 +468,7 @@ void send_conf(){
     }else{ /*Hi ha resposta */
       sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct tcp_PDU), pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
       debug(buff);
+      memset(buff, '\0', sizeof(buff)); /*Per evitar stack smashing */
       correct = 1;
       break;
     }

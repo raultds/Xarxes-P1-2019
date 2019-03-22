@@ -83,7 +83,7 @@ def send_packet(addr, equip, type):
             equip.status = "REGISTERED"
             debug_string = 'Equip: ' + equip.name + ' passat a estat REGISTERED'
             create_alive_thread(addr, equip)
-            debug(debug_string)
+            print_msg(debug_string)
     elif type == '0x02': #REGISTER_NACK
         trama = struct.pack(udp_format, 0x02, "000000", "000000000000", "000000", "Enviat primer paquet amb numero aleatori diferent de 0")
         send = socketUDP.sendto(trama, addr)
@@ -165,7 +165,7 @@ def keep_alive_ack(addr, equip):
         if len(equip.udp_packets) != 0:
             if equip.status == 'REGISTERED':
                 equip.status = 'ALIVE'
-                debug('Equip: ' + equip.name + ' passat a estat ALIVE')
+                print_msg('Equip: ' + equip.name + ' passat a estat ALIVE')
             send_packet(addr, equip, '0x11')
             contador = 0
             start = time.time()
@@ -181,7 +181,7 @@ def keep_alive_ack(addr, equip):
                 debug("No s'ha rebut alive correcte abans de 2 intervals d'enviament")
                 equip.status = "DISCONNECTED"
                 equip.status = "DISCONNECTED"
-                debug("Equip passa a estat DISCONNECTED")
+                print_msg("Equip passa a estat DISCONNECTED")
                 break
 
 #Tracta el primer alive_inf de cada equip
@@ -245,13 +245,14 @@ def treat_tcp_packet(data, con, addr):
             thread_send = threading.Thread(target=receive_config_file, kwargs={'equip': equip, 'addr': addr})
             thread_send.daemon = True
             thread_send.start()
-    elif type == '0x24':
+    elif type == '0x24':  #SEND_DATA
         if correct_packet(data, equip, addr):
             received_file.write(data['data'])
-    elif type == '0x25':
+    elif type == '0x25':  #SEND_END
         if correct_packet(data, equip, addr):
             equip.tcp_thread = 0
             received_file.close()
+            print_msg("Rebut arxiu de configuració de l'equip: " + equip.name )
 
 
 #Tracta els paquet UDP
@@ -333,7 +334,6 @@ def listen_tcp():
 
         packet = get_packet_info(data_string)
         size = sys.getsizeof(data)
-        print packet
         debug_string = 'Rebut: ' + str(size) + ' Bytes ' + ' type: ' + str(packet['type']) + ' name: ' + str(packet['name']) + ' mac: '+ str(packet['MAC']) + ' aleatori: ' + str(packet['random']) + ' dades: ' + str(packet['data'])
         debug(debug_string)
         treat_tcp_packet(packet, con, addr)
@@ -405,7 +405,8 @@ def read_commands():
 
 if __name__ == '__main__':
     try:
-        global dbg, types, equips_data, configuration, udp_format, stop_threads, tcp_format
+        global dbg, types, equips_data, configuration, udp_format, stop_threads, tcp_format, end_received
+        end_received = False
         stop_threads = False
         udp_format = "B7s13s7s50s"
         tcp_format = "B7s13s7s150s"
