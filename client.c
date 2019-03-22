@@ -53,15 +53,16 @@ void create_UDP(struct udp_PDU *pdu, struct client_config *config, unsigned char
 void set_state(char _state[]);
 void print_msg(char msg[]);
 void set_periodic_comunication();
-int treat_UDP_packet(struct parameters params);
+int treat_UDP_packet();
 void setup_udp();
 void send_alive();
 void read_commands();
 void treat_command(char command[]);
 void setup_tcp();
 void send_conf();
-void create_tcp(struct tcp_PDU *pdu, unsigned char petition);
+void create_tcp(struct tcp_PDU *pdu, unsigned char petition, char buf[]);
 void treat_tcp_packet(struct tcp_PDU pdu_answer);
+void send_file();
 
 int main(int argc, char **argv){
   struct sockaddr_in udp_addr_server, addr_cli;
@@ -206,7 +207,7 @@ void subscribe(struct client_config *config, struct sockaddr_in udp_addr_server,
   sprintf(buff, "Rebut: bytes= %lu, type:%i, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.mac, data.random, data.data);
   debug(buff);
   params.data = &data;
-  treat_UDP_packet(params);
+  treat_UDP_packet();
 }
 
 void send_alive(){
@@ -232,7 +233,7 @@ void send_alive(){
         params.data = &data;
         sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.name, data.mac, data.random, data.data);
         debug(buff);
-        packet_state = treat_UDP_packet(params);
+        packet_state = treat_UDP_packet();
         if(packet_state == -1){ /*Significa que es un paquet incorrecte */
           incorrecte+=1;
           if(incorrecte == u){
@@ -284,8 +285,8 @@ void set_periodic_comunication(){
       u = 0;
       sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct udp_PDU), data.type, data.name, data.mac, data.random, data.data);
       debug(buff);
-      treat_UDP_packet(params);
-      if((strcmp(state, "REGISTERED")==0 || strcmp(state, "ALIVE")==0) && u==3){
+      treat_UDP_packet();
+      if(strcmp(state, "ALIVE")==0 || u==3){
         break;
       }
     }else{
@@ -293,6 +294,7 @@ void set_periodic_comunication(){
     }
 
   }
+
   if(strcmp(state, "REGISTERED") == 0){
     set_state("DISCONNECTED");
     if(debug_flag == 0)  print_msg("ESTAT: DISCONNECTED");
@@ -304,14 +306,13 @@ void set_periodic_comunication(){
     debug("Creat procés per mantenir comunicació periodica amb el servidor");
     pthread_create(&alive_thread, NULL, (void*(*) (void*))send_alive, NULL);
   }
-
 }
 
 void set_state(char _state[]){
   strcpy(state, _state);
 }
 
-int treat_UDP_packet(struct parameters params){
+int treat_UDP_packet(){
   char buff[100];
   int equals;
   int correct = 0;
@@ -404,42 +405,55 @@ void create_UDP(struct udp_PDU *pdu, struct client_config *config, unsigned char
   }
 }
 
-void create_tcp(struct tcp_PDU *pdu, unsigned char petition){
+void create_tcp(struct tcp_PDU *pdu, unsigned char petition, char buf[]){
   char str[20];
   switch(petition){
     case SEND_FILE:
+      pdu->type = petition;
+      strcpy(pdu->name, params.config->name);
+      strcpy(pdu->mac, params.config->MAC);
+      strcpy(pdu->random, params.config->random);
+      strcat(str, software_config_file);
+      strcat(str, ",");
+      strcat(str, config_file_size);
+      strcpy(pdu->data, str);
+      break;
+    case SEND_DATA:
+      pdu->type = petition;
+      strcpy(pdu->name, params.config->name);
+      strcpy(pdu->mac, params.config->MAC);
+      strcpy(pdu->random, params.config->random);
+      strcpy(pdu->data, buf);
+      break;
+    case SEND_END:
     pdu->type = petition;
     strcpy(pdu->name, params.config->name);
     strcpy(pdu->mac, params.config->MAC);
     strcpy(pdu->random, params.config->random);
-    strcat(str, software_config_file);
-    strcat(str, ",");
-    strcat(str, config_file_size);
-    strcpy(pdu->data, str);
-    break;
+    memset(pdu->data, '\0', sizeof(char)*49);
   }
 }
 
 void send_conf(){
   struct tcp_PDU pdu, pdu_answer;
   int n_bytes = 0, w = 4, correct;
-  socklen_t fromlen;
   time_t start;
-  fromlen = sizeof(params.tcp_addr_server);
+  char buff[100];
 
-  create_tcp(&pdu, SEND_FILE);
-  n_bytes = sendto(tcp_sock, &pdu, sizeof(pdu), 0, (struct sockaddr*) &params.tcp_addr_server, sizeof(params.tcp_addr_server));
+  create_tcp(&pdu, SEND_FILE, NULL);
+  n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
+  debug("Enviat paquet SEND_FILE");
   if(n_bytes<0){
-    fprintf(stderr, "Error al sendto \n");
+    fprintf(stderr, "Error al send \n");
     perror("Error: ");
     exit(-1);
   }
   n_bytes = 0;
   start = clock();
   while(1) {
-    n_bytes = recvfrom(tcp_sock, &pdu_answer, sizeof(pdu_answer), MSG_DONTWAIT, (struct sockaddr *)&params.tcp_addr_server, &fromlen);
+    n_bytes = recv(tcp_sock, &pdu_answer, sizeof(pdu_answer), 0);
     if(n_bytes<0){
-      fprintf(stderr, "Error al recvfrom \n");
+      fprintf(stderr, "Error al recv \n");
       perror("Error: ");
       exit(-1);
     }
@@ -451,6 +465,8 @@ void send_conf(){
         break;
       }
     }else{ /*Hi ha resposta */
+      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct tcp_PDU), pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
+      debug(buff);
       correct = 1;
       break;
     }
@@ -463,13 +479,61 @@ void send_conf(){
 }
 
 void treat_tcp_packet(struct tcp_PDU pdu_answer){
+  switch(pdu_answer.type){
+    case SEND_ACK:
+      if(strcmp(pdu_answer.random, server_data.random) == 0 && strcmp(pdu_answer.name, server_data.name) == 0 && strcmp(pdu_answer.mac, server_data.MAC)==0){ /*Comprovem si es correcte */
+        char name[10];
+        strcat(name, params.config->name);
+        strcat(name, ".cfg");
+        if(strcmp(name, pdu_answer.data) == 0){
+          send_file();
+        }
+        break;
+      }
 
+    }
 }
 
+/*Envia l'arxiu de configuració */
+void send_file(){
+  FILE *conf;
+  char buf[256];
+  struct tcp_PDU pdu;
+  int n_bytes = 0;
+
+  conf = fopen(software_config_file, "r");
+  if(conf == NULL){
+    perror("Error obrir arxiu");
+    exit(1);
+  }
+
+  while(fgets(buf, sizeof(buf), conf) != NULL){
+    create_tcp(&pdu, SEND_DATA, buf);
+    n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
+    debug("Enviat paquet SEND_DATA");
+    if(n_bytes<0){
+      fprintf(stderr, "Error al send \n");
+      perror("Error: ");
+      exit(-1);
+    }
+    memset(buf, '\0', sizeof(buf)); /*Per evitar stack smashing */
+  }
+  create_tcp(&pdu, SEND_END, NULL);
+  debug("Enviat paquet SEND_END");
+  n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
+  if(n_bytes<0){
+    fprintf(stderr, "Error al send \n");
+    perror("Error: ");
+    exit(-1);
+  }
+  fclose(conf);
+}
+
+/*Inicialitza el socket TCP */
 void setup_tcp(){
   struct sockaddr_in tcp_addr;
-  tcp_sock = socket(AF_INET, SOCK_DGRAM, 0);
   if(tcp_sock == 0){
+    tcp_sock = socket(AF_INET, SOCK_STREAM, 0);
     if(tcp_sock < 0){
       fprintf(stderr, "No s'ha pogut obrir el socket TCP. \n");
       perror("Error: ");
@@ -494,12 +558,18 @@ void setup_tcp(){
       close(tcp_sock);
       exit(-1);
     }
+    if(connect(tcp_sock, (struct sockaddr *) &params.tcp_addr_server, sizeof(params.tcp_addr_server)) < 0){
+      fprintf(stderr, "No s'ha pogut connectar amb el servidor. \n");
+      perror("Error: ");
+      close(tcp_sock);
+      exit(-1);
+    }
     debug("Socket TCP inicialitzat");
   }
 }
 
 void read_commands(){
-  char command[10]; /* les comandes son màxim 9 caracters */
+  char command[9]; /* les comandes son màxim 9 caracters */
   while(1){
     if(debug_flag == 0) printf("-> "); /* Per evitar barrejes amb els misatges debug */
     scanf("%9s", command);
