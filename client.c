@@ -29,15 +29,22 @@
 #define SEND_DATA 0x24
 #define SEND_END 0x25
 
+#define GET_FILE 0x30
+#define GET_ACK 0x31
+#define GET_NACK 0x32
+#define GET_REJ 0x33
+#define GET_DATA 0x34
+#define GET_END 0x35
+
 
 /* Variables globals */
 int debug_flag = 0;
 char software_config_file[20] = "client.cfg";
 char network_config_file[20] = "boot.cfg";
-char config_file_size[10] = "";
 char state[30] = "DISCONNECTED";
 int udp_sock, tcp_sock = 0, counter;
 int pthread_created = 0;
+FILE *data = NULL;
 struct tcp_data pc_data;
 struct parameters params;
 struct server_data server_data;
@@ -63,6 +70,8 @@ void send_conf();
 void create_tcp(struct tcp_PDU *pdu, unsigned char petition, char buf[]);
 void treat_tcp_packet(struct tcp_PDU pdu_answer);
 void send_file();
+void get_conf();
+char* get_network_file_size();
 
 int main(int argc, char **argv){
   struct sockaddr_in udp_addr_server, addr_cli;
@@ -105,7 +114,6 @@ int main(int argc, char **argv){
 void read_software_config_file(struct client_config *config){
   FILE *conf;
   char word[256];
-  int size;
   conf = fopen(software_config_file, "r");
   if(conf == NULL){
     fprintf(stderr, "Error obrir arxiu");
@@ -132,10 +140,6 @@ void read_software_config_file(struct client_config *config){
   fscanf(conf, "%s", word);
   config->UDPport = atoi(word);
 
-  fseek(conf, 0L, SEEK_END);
-  size = ftell(conf);                           /*Per a saber la mida si es desitja enviar el fitxer mes endavant */
-  sprintf(word, "%d", size);
-  strcpy(config_file_size, word);
   fclose(conf);
 }
 
@@ -406,6 +410,23 @@ void create_UDP(struct udp_PDU *pdu, struct client_config *config, unsigned char
   }
 }
 
+char* get_network_file_size(){
+  FILE *f;
+  int size;
+  char *str_size = (char *) malloc(sizeof(char) * 5);
+  memset(&str_size, '\0', sizeof(char)*5);
+  f = fopen(network_config_file, "r");
+  if(f == NULL){
+    fprintf(stderr, "Error obrir arxiu");
+    exit(-1);
+  }
+  fseek(f, 0L, SEEK_END);
+  size = ftell(f) + 1;
+  sprintf(str_size, "%d", size);
+  fclose(f);
+  return str_size;
+}
+
 void create_tcp(struct tcp_PDU *pdu, unsigned char petition, char buf[]){
   char str[20];
   switch(petition){
@@ -416,7 +437,7 @@ void create_tcp(struct tcp_PDU *pdu, unsigned char petition, char buf[]){
       strcpy(pdu->random, params.config->random);
       strcat(str, software_config_file);
       strcat(str, ",");
-      strcat(str, config_file_size);
+      strcat(str, get_network_file_size());
       strcpy(pdu->data, str);
       break;
     case SEND_DATA:
@@ -427,11 +448,19 @@ void create_tcp(struct tcp_PDU *pdu, unsigned char petition, char buf[]){
       strcpy(pdu->data, buf);
       break;
     case SEND_END:
-    pdu->type = petition;
-    strcpy(pdu->name, params.config->name);
-    strcpy(pdu->mac, params.config->MAC);
-    strcpy(pdu->random, params.config->random);
-    memset(pdu->data, '\0', sizeof(char)*49);
+      pdu->type = petition;
+      strcpy(pdu->name, params.config->name);
+      strcpy(pdu->mac, params.config->MAC);
+      strcpy(pdu->random, params.config->random);
+      memset(pdu->data, '\0', sizeof(char)*49);
+      break;
+    case GET_FILE:
+      pdu->type = petition;
+      strcpy(pdu->name, params.config->name);
+      strcpy(pdu->mac, params.config->MAC);
+      strcpy(pdu->random, params.config->random);
+      strcpy(pdu->data, network_config_file);
+      break;
   }
 }
 
@@ -439,11 +468,54 @@ void send_conf(){
   struct tcp_PDU pdu, pdu_answer;
   int n_bytes = 0, w = 4, correct;
   time_t start;
-  char buff[100];
+  char buff[200];
 
   create_tcp(&pdu, SEND_FILE, NULL);
   n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
   debug("Enviat paquet SEND_FILE");
+  if(n_bytes<0){
+    fprintf(stderr, "Error al send \n");
+    perror("Error: ");
+    exit(-1);
+  }
+  n_bytes = 0;
+  start = clock();
+  while(1) {
+    n_bytes = recv(tcp_sock, &pdu_answer, sizeof(pdu_answer), 0);
+    if(n_bytes<0){
+      fprintf(stderr, "Error al recv \n");
+      perror("Error: ");
+      exit(-1);
+    }
+    if(n_bytes == 0){ /* No s'ha rebut resposta */
+      if(clock()-start / CLOCKS_PER_SEC == w){
+        debug("No hi ha hagut comunicació amb el servidor TCP");
+        debug("Finalitzant la conexió TCP");
+        correct = 0;
+        break;
+      }
+    }else{ /*Hi ha resposta */
+      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct tcp_PDU), pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
+      debug(buff);
+      memset(buff, '\0', sizeof(buff)); /*Per evitar stack smashing */
+      correct = 1;
+      break;
+    }
+  }
+  if(correct == 1) treat_tcp_packet(pdu_answer);
+
+}
+
+
+void get_conf(){
+  struct tcp_PDU pdu, pdu_answer;
+  int n_bytes = 0, w = 4, correct;
+  time_t start;
+  char buff[200];
+
+  create_tcp(&pdu, GET_FILE, NULL);
+  n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
+  debug("Enviat paquet GET_FILE");
   if(n_bytes<0){
     fprintf(stderr, "Error al send \n");
     perror("Error: ");
@@ -480,6 +552,41 @@ void send_conf(){
   }
 }
 
+/*Rep l'arxiu de configuració */
+void get_file(){
+  struct tcp_PDU pdu_answer;
+  int n_bytes = 0, w = 4;
+  time_t start;
+  char buff[100];
+  start = clock();
+
+  while(1) {
+    n_bytes = recv(tcp_sock, &pdu_answer, sizeof(pdu_answer), 0);
+    if(n_bytes<0){
+      fprintf(stderr, "Error al recv \n");
+      perror("Error: ");
+      exit(-1);
+    }
+    if(n_bytes == 0){ /* No s'ha rebut resposta */
+      if(clock()-start / CLOCKS_PER_SEC == w){
+        debug("No hi ha hagut comunicació amb el servidor TCP");
+        break;
+      }
+    }else{ /*Hi ha resposta */
+      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct tcp_PDU), pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
+      debug(buff);
+      memset(buff, '\0', sizeof(buff)); /*Per evitar stack smashing */
+      if(pdu_answer.type == GET_END){
+        fclose(data);
+        debug("Rebut arxiu de configuració");
+        break;
+      }
+      treat_tcp_packet(pdu_answer);
+    }
+  }
+}
+
+
 void treat_tcp_packet(struct tcp_PDU pdu_answer){
   switch(pdu_answer.type){
     case SEND_ACK:
@@ -492,8 +599,29 @@ void treat_tcp_packet(struct tcp_PDU pdu_answer){
         }
         break;
       }
-
+    case GET_ACK:
+    if(strcmp(pdu_answer.random, server_data.random) == 0 && strcmp(pdu_answer.name, server_data.name) == 0 && strcmp(pdu_answer.mac, server_data.MAC)==0){ /*Comprovem si es correcte */
+      char name[10];
+      strcat(name, params.config->name);
+      strcat(name, ".cfg");
+      if(strcmp(name, pdu_answer.data) == 0){
+        get_file();
+      }
+      break;
     }
+    case GET_DATA:
+      if(data==NULL){
+        data = fopen(network_config_file, "w");
+        if(data == NULL){
+          fprintf(stderr, "Error obrir arxiu");
+          exit(-1);
+        }
+      }
+      if(strcmp(pdu_answer.random, server_data.random) == 0 && strcmp(pdu_answer.name, server_data.name) == 0 && strcmp(pdu_answer.mac, server_data.MAC)==0){ /*Comprovem si es correcte */
+        fputs(pdu_answer.data, data);
+      }
+      break;
+  }
 }
 
 /*Envia l'arxiu de configuració */
@@ -503,7 +631,7 @@ void send_file(){
   struct tcp_PDU pdu;
   int n_bytes = 0;
 
-  conf = fopen(software_config_file, "r");
+  conf = fopen(network_config_file, "r");
   if(conf == NULL){
     perror("Error obrir arxiu");
     exit(1);
@@ -576,6 +704,7 @@ void read_commands(){
     if(debug_flag == 0) printf("-> "); /* Per evitar barrejes amb els misatges debug */
     scanf("%9s", command);
     treat_command(command);
+    memset(command, '\0', sizeof(command)); /*Per evitar stack smashing */
   }
 }
 
@@ -591,7 +720,7 @@ void treat_command(char command[]){
     send_conf();
   }else if(strcmp(command, "get-conf") == 0){
     setup_tcp();
-    print_msg("Not implemented yet");
+    get_conf();
   }else{
     print_msg("Wrong command");
   }
