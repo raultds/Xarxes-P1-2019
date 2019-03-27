@@ -534,7 +534,7 @@ void get_file(){
   struct tcp_PDU pdu_answer;
   int n_bytes = 0, w = 4;
   time_t start;
-  char buff[100];
+	char buff[151];
   FILE *f;
 
   start = clock();
@@ -556,10 +556,13 @@ void get_file(){
         debug("No hi ha hagut comunicació amb el servidor TCP");
         break;
       }
-    }else{ /*Hi ha resposta */
-      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(struct tcp_PDU), pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
+ 	}else{ /*Hi ha resposta */
+
+      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(pdu_answer),
+   				pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
+   		 
       debug(buff);
-      memset(buff, '\0', sizeof(buff)); /*Per evitar stack smashing */
+      memset(buff, '\0', sizeof(buff)); /* Per evitar stack smashing */
       if(pdu_answer.type == GET_DATA){
         if(strcmp(pdu_answer.random, server_data.random) == 0 && strcmp(pdu_answer.name, server_data.name) == 0 && strcmp(pdu_answer.mac, server_data.MAC)==0){ /*Comprovem si es correcte */
           fputs(pdu_answer.data, f);
