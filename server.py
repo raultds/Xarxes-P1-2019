@@ -17,9 +17,9 @@ class equip:
         self.tcp_packets = []
         self.ip = ''
         self.tcp_thread = 0
-        self.socket = None
         self.port = 0
-
+        self.TCPsocket = None
+        self.addr = None
 class config:
     def __init__(self, name, mac, UDPport, TCPport):
         self.name = name
@@ -119,37 +119,37 @@ def send_packet(addr, equip, type):
         debug(debug_string)
     elif type == '0x21': #SEND_ACK
         trama = struct.pack(tcp_format, 0x21, configuration.name, configuration.mac, equip.random, equip.name + '.cfg')
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes ' + ' type: ' + "0x21" + ' name: ' + equip.name + ' mac: ' + configuration.mac + ' aleatori: ' + equip.random + ' dades: ' + equip.name + '.cfg'
         debug(debug_string)
     elif type == '0x22':#SEND_NACK
         trama = struct.pack(tcp_format, 0x22, "000000", "000000000000", "000000", "Equip amb IP incorrecta o número aleatori incorrecte")
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes type: 0x22 name: 000000 mac: 000000000000 aleatori: 000000 dades: Equip amb IP incorrecta o número aleatori incorrecte'
         debug(debug_string)
     elif type == '0x23': #SEND_REJ
         trama = struct.pack(tcp_format, 0x23, "000000", "000000000000", "000000", "Equip no autoritzat o no registrat")
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes type: 0x23 name: 000000 mac: 000000000000 aleatori: 000000 dades: Equip no autoritzat o no registrat'
         debug(debug_string)
     elif type == '0x31': # GET_ACK
         trama = struct.pack(tcp_format, 0x31, configuration.name, configuration.mac, equip.random, equip.name + '.cfg')
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes ' + ' type: ' + "0x31" + ' name: ' + equip.name + ' mac: ' + configuration.mac + ' aleatori: ' + equip.random + ' dades: ' + equip.name + '.cfg'
         debug(debug_string)
     elif type == '0x32': # GET_NACK
         trama = struct.pack(tcp_format, 0x32, "000000", "000000000000", "000000", "Equip amb IP incorrecta o número aleatori incorrecte")
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes type: 0x32 name: 000000 mac: 000000000000 aleatori: 000000 dades: Equip amb IP incorrecta o número aleatori incorrecte'
         debug(debug_string)
     elif type == '0x33': # GET_REJ
         trama = struct.pack(tcp_format, 0x33, "000000", "000000000000", "000000", "Equip no autoritzat o no registrat")
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes type: 0x33 name: 000000 mac: 000000000000 aleatori: 000000 dades: Equip no autoritzat o no registrat'
         debug(debug_string)
     elif type == '0x35': # GET_END
         trama = struct.pack(tcp_format, 0x35, configuration.name, configuration.mac, equip.random,'')
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes ' + ' type: ' + "0x31" + ' name: ' + equip.name + ' mac: ' + configuration.mac + ' aleatori: ' + equip.random + ' dades: '
         debug(debug_string)
 
@@ -233,23 +233,22 @@ def receive_config_file(equip, addr):
         equip.tcp_packets.remove(equip.tcp_packets[0])
         equip.tcp_thread = 0
 
-    equip.socket.setblocking(0)
+    equip.TCPsocket.setblocking(0)
     if ack == True:
         while equip.tcp_thread == 1:
             actual = time.time() - start
             if actual > w:
                 debug("No hi ha una comunicació correcta. Tancat canal TCP")
-                equip.socket.close()
                 equip.tcp_thread = 0
                 break
             try:
-                data = equip.socket.recv(struct.calcsize(tcp_format))  #Esperem paquets
+                data = equip.TCPsocket.recv(struct.calcsize(tcp_format))  #Esperem paquets
                 data_string = struct.unpack(tcp_format, data)
                 packet = get_packet_info(data_string)
                 size = sys.getsizeof(data)
                 debug_string = 'Rebut: ' + str(size) + ' Bytes ' + ' type: ' + str(packet['type']) + ' name: ' + str(packet['name']) + ' mac: '+ str(packet['MAC']) + ' aleatori: ' + str(packet['random']) + ' dades: ' + str(packet['data'])
                 debug(debug_string)
-                treat_tcp_packet(packet, None, addr)
+                treat_tcp_packet(packet, addr)
             except socket.error as msg:
                 pass
 
@@ -261,20 +260,20 @@ def send_config_file(equip, addr):
     file = open(name, "r")
     for line in file:
         trama = struct.pack(tcp_format, 0x34, configuration.name, configuration.mac, equip.random, line)
-        send = equip.socket.send(trama)
+        send = equip.TCPsocket.send(trama)
         debug_string = 'Enviat: ' + str(send) + ' Bytes ' + ' type: ' + "0x21" + ' name: ' + equip.name + ' mac: ' + configuration.mac + ' aleatori: ' + equip.random + ' dades: ' + line
         debug(debug_string)
 
     send_packet(addr, equip, '0x35')
 
+
 #TRacta els paquets tcp
-def treat_tcp_packet(data, con, addr):
+def treat_tcp_packet(data, addr):
     type = data['type']
     equip = get_equip(data['name'])
     if type == '0x20':                  # SEND_FILE
         equip.tcp_packets.append(data)
         if equip.tcp_thread == 0:
-            equip.socket = con
             thread_send = threading.Thread(target=receive_config_file, kwargs={'equip': equip, 'addr': addr})
             thread_send.daemon = True
             thread_send.start()
@@ -289,7 +288,6 @@ def treat_tcp_packet(data, con, addr):
     elif type == '0x30':  #GET_FILE
         correct = correct_packet(data, equip, addr)
         if correct:
-            equip.socket = con
             thread_send = threading.Thread(target=send_config_file, kwargs={'equip': equip, 'addr': addr})
             thread_send.daemon = True
             thread_send.start()
@@ -357,36 +355,55 @@ def listen_udp():
 
 #Escolta conexions tcp
 def listen_tcp():
-    try:
-        socketTCP.bind(('localhost', configuration.TCPport))
-    except socket.error as msg:
-        print('Bind failed. Error code: ' + str(msg[0]) + ' Message ' + msg[1])
-    debug("Fet bind TCP al socket")
-    debug("Escoltant paquets TCP")
-    while True:
-        if stop_threads == True:
-            socketTCP.close()
-            break
-        socketTCP.listen(1)
-        con, addr = socketTCP.accept()
-        debug_string = "Rebut connexio TCP de:" + str(addr[0])
-        debug(debug_string)
-        debug("Acceptada connexió")
-        data = con.recv(struct.calcsize(tcp_format))  #Esperem paquets
-        data_string = struct.unpack(tcp_format, data)
+    import Queue
+    server = socketTCP
+    server.setblocking(0)
+    server.bind(('localhost', configuration.TCPport))
+    server.listen(5)
+    inputs = [server]
+    outputs = []
+    message_queues = {}
+    while inputs:
+        readable, writable, exceptional = select.select(
+            inputs, outputs, inputs)
+        for s in readable:
+            if s is server:
+                connection, client_address = s.accept()
+                connection.setblocking(0)
+                inputs.append(connection)
+                debug_string = "Rebut connexio TCP de:" + str(client_address[0])
+                debug(debug_string)
+                debug("Acceptada connexió")
+                message_queues[connection] = Queue.Queue()
+            else:
+                data, addr = s.recvfrom(struct.calcsize(tcp_format))
+                if data:
+                    data_string = struct.unpack(tcp_format, data)
+                    packet = get_packet_info(data_string)
+                    size = sys.getsizeof(data)
+                    equip = get_equip(packet['name'])
+                    equip.addr = s.getsockname()
+                    equip.TCPsocket = s
+                    debug_string = 'Rebut: ' + str(size) + ' Bytes ' + ' type: ' + str(packet['type']) + ' name: ' + str(packet['name']) + ' mac: '+ str(packet['MAC']) + ' aleatori: ' + str(packet['random']) + ' dades: ' + str(packet['data'])
+                    debug(debug_string)
+                    message_queues[s].put(packet)
+                    if s not in outputs:
+                        outputs.append(s)
+                else:
+                    if s in outputs:
+                        outputs.remove(s)
+                    inputs.remove(s)
+                    s.close()
+                    del message_queues[s]
 
-        packet = get_packet_info(data_string)
-        size = sys.getsizeof(data)
-        debug_string = 'Rebut: ' + str(size) + ' Bytes ' + ' type: ' + str(packet['type']) + ' name: ' + str(packet['name']) + ' mac: '+ str(packet['MAC']) + ' aleatori: ' + str(packet['random']) + ' dades: ' + str(packet['data'])
-        debug(debug_string)
-        treat_tcp_packet(packet, con, addr)
+        for s in writable:
+            try:
+                next_msg = message_queues[s].get_nowait()
+                equip = get_equip(next_msg['name'])
 
-#Retorna un equip dels disponibles
-def get_equip(name):
-    for equip in equips_data:
-        if name == equip.name:
-            return equip
-    return -1
+                treat_tcp_packet(next_msg, equip.addr)
+            except Queue.Empty:
+                outputs.remove(s)
 
 
 #Imprimeix un missatge debug
@@ -442,6 +459,13 @@ def treat_command(input):
         print_list()
     else:
         print_msg("Comanda incorrecta")
+
+
+def get_equip(data):
+    for equip in equips_data:
+        if equip.name==data:
+            return equip
+    return -1
 
 #S'encarrega de llegir comandes per consola
 def read_commands():
