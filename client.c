@@ -147,7 +147,7 @@ void subscribe(struct client_config *config, struct sockaddr_in udp_addr_server,
   struct udp_PDU data;
   struct udp_PDU reg_pdu;
   socklen_t fromlen;
-  char buff[100];
+  char buff[300];
   fromlen = sizeof(udp_addr_server);
 
   /* Creació paquet registre */
@@ -214,7 +214,7 @@ void subscribe(struct client_config *config, struct sockaddr_in udp_addr_server,
 
 void send_alive(){
   int u = 3, i = 0, r = 3, temp, n_bytes, packet_state = 0, incorrecte = 0;
-  char buff[100];
+  char buff[300];
   socklen_t fromlen;
   struct udp_PDU alive_pdu;
   struct udp_PDU data;
@@ -243,7 +243,7 @@ void send_alive(){
             print_msg("ESTAT: DISCONNECTED");
             debug("No s'ha rebut tres paquets de confirmació d'ALIVE consecutius correctes.");
             debug("Client passa a l'estat DISCONNECTED i reinicia el proces de subscripció");
-            subscribe(params.config, params.udp_addr_server, params.addr_cli);
+            break;
           }
         }else{
           incorrecte = 0;
@@ -255,19 +255,19 @@ void send_alive(){
           print_msg("ESTAT: DISCONNECTED");
           debug("No s'ha rebut confirmació de tres paquets de rebuda de paquets ALIVE consecutius.");
           debug("Client passa a l'estat DISCONNECTED i reinicia el proces de subscripció");
-          subscribe(params.config, params.udp_addr_server, params.addr_cli);
+          break;
         }
       }
-
       n_bytes = 0;
       sleep(r);
     }
   }
+  subscribe(params.config, params.udp_addr_server, params.addr_cli);
 }
 
 void set_periodic_comunication(){
   int r = 3, u=0, temp, n_bytes;
-  char buff[100];
+  char buff[300];
   socklen_t fromlen;
   struct udp_PDU alive_pdu;
   struct udp_PDU data;
@@ -316,7 +316,7 @@ void set_state(char _state[]){
 }
 
 int treat_UDP_packet(){
-  char buff[100];
+  char buff[300];
   int equals;
   int correct = 0;
   switch(params.data->type){
@@ -468,7 +468,7 @@ void send_conf(){
   struct tcp_PDU pdu, pdu_answer;
   int n_bytes = 0, w = 4, correct;
   time_t start;
-  char buff[100];
+  char buff[300];
 
   create_tcp(&pdu, SEND_FILE, NULL);
   n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
@@ -535,7 +535,7 @@ void get_file(){
   int n_bytes = 0, w = 4;
   time_t start;
   FILE *f;
-  char buff[100];
+  char buff[500];
   start = clock();
   f = fopen(network_config_file, "w");
   if(f==NULL){
@@ -556,7 +556,8 @@ void get_file(){
         break;
       }
  	}else{ /*Hi ha resposta */
-      debug("REBUT GET DATA");
+      sprintf(buff, "Rebut: bytes= %lu, type:%i, nom=%s, mac=%s, random=%s, dades=%s", sizeof(pdu_answer), pdu_answer.type, pdu_answer.name, pdu_answer.mac, pdu_answer.random, pdu_answer.data);
+      debug(buff);
       if(pdu_answer.type == GET_DATA){
         if(strcmp(pdu_answer.random, server_data.random) == 0 && strcmp(pdu_answer.name, server_data.name) == 0 && strcmp(pdu_answer.mac, server_data.MAC)==0){ /*Comprovem si es correcte */
           fputs(pdu_answer.data, f);
@@ -566,11 +567,13 @@ void get_file(){
         fclose(f);
         sprintf(buff, "Rebut arxiu de configuració: %s.cfg", params.config->name);
         debug(buff);
+        if(debug_flag == 0) print_msg(buff);
         break;
       }
 
     }
   }
+  close(tcp_sock);
 }
 
 /*Envia el GET_FILE */
@@ -578,7 +581,7 @@ void get_conf(){
   struct tcp_PDU pdu, pdu_answer;
   int n_bytes = 0, w = 4, correct;
   time_t start;
-  char buff[200];
+  char buff[500];
 
   create_tcp(&pdu, GET_FILE, NULL);
   n_bytes = send(tcp_sock, &pdu, sizeof(pdu), 0);
@@ -653,6 +656,7 @@ void send_file(){
     perror("Error: ");
     exit(-1);
   }
+  print_msg("Enviat arxiu de configuració");
   fclose(conf);
 }
 

@@ -200,7 +200,6 @@ def keep_alive_ack(addr, equip):
             if actual > j * interval:
                 debug("No s'ha rebut alive correcte abans de 2 intervals d'enviament")
                 equip.status = "DISCONNECTED"
-                equip.status = "DISCONNECTED"
                 print_msg("Equip passa a estat DISCONNECTED")
                 break
 
@@ -261,9 +260,9 @@ def send_config_file(equip, addr):
 
     file = open(name, "r")
     for line in file:
-        trama = struct.pack(tcp_format, 0x34, configuration.name, configuration.mac, equip.random, equip.name + line)
+        trama = struct.pack(tcp_format, 0x34, configuration.name, configuration.mac, equip.random, line)
         send = equip.socket.send(trama)
-        debug_string = 'Enviat: ' + str(send) + ' Bytes ' + ' type: ' + "0x21" + ' name: ' + equip.name + ' mac: ' + configuration.mac + ' aleatori: ' + equip.random + ' dades: ' + equip.name + line
+        debug_string = 'Enviat: ' + str(send) + ' Bytes ' + ' type: ' + "0x21" + ' name: ' + equip.name + ' mac: ' + configuration.mac + ' aleatori: ' + equip.random + ' dades: ' + line
         debug(debug_string)
 
     send_packet(addr, equip, '0x35')
@@ -423,19 +422,24 @@ def read_config_file(config_file):
 
     return config(name, mac, UDPport, TCPport)
 
+
+def print_list():
+    print('===================LLISTA EQUIPS==================')
+    for equip in equips_data:
+        if equip.status != 'DISCONNECTED':
+            print('Name: ' + equip.name + ' MAC: ' + equip.mac + ' IP: ' + equip.ip + ' State: ' + equip.status)
+        else:
+            print('Name: ' + equip.name + ' MAC: ' + equip.mac + ' State: ' + equip.status)
+
+
 #S'encarrega de tractar la comanda
 def treat_command(input):
     if input == 'quit':
         stop_threads = True
-        tcp_sock.close()
+        socketTCP.close()
         sys.exit(1)
     elif input == 'list':
-        print('===================LLISTA EQUIPS==================')
-        for equip in equips_data:
-            if equip.status != 'DISCONNECTED':
-                print('Name: ' + equip.name + ' MAC: ' + equip.mac + ' IP: ' + equip.ip + ' State: ' + equip.status)
-            else:
-                print('Name: ' + equip.name + ' MAC: ' + equip.mac + ' State: ' + equip.status)
+        print_list()
     else:
         print_msg("Comanda incorrecta")
 
